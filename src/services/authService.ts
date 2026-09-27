@@ -1,52 +1,66 @@
 import type { User } from '@/types';
+import { supabase } from '@/lib/supabase';
 
-const STORAGE_KEY = 'delivery-manager-auth-v1';
-
-const mockUser: User = {
-  id: 'u1',
-  name: 'Aarav Sharma',
-  email: 'aarav.sharma@gmail.com',
-  avatarUrl: 'https://i.pravatar.cc/150?img=12',
-};
-
-interface StoredAuth {
-  user: User;
-  token: string;
-}
-
-function readStored(): StoredAuth | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as StoredAuth;
-  } catch {
-    // ignore
+function mapSupabaseUser(
+  supabaseUser: {
+    id: string;
+    email?: string;
+    user_metadata?: Record<string, unknown>;
   }
-  return null;
-}
+): User {
+  const metadata = supabaseUser.user_metadata ?? {};
 
-function writeStored(auth: StoredAuth | null): void {
-  if (auth) localStorage.setItem(STORAGE_KEY, JSON.stringify(auth));
-  else localStorage.removeItem(STORAGE_KEY);
+  return {
+    id: supabaseUser.id,
+    name:
+      (metadata.full_name as string | undefined) ??
+      (metadata.name as string | undefined) ??
+      supabaseUser.email ??
+      '',
+    email: supabaseUser.email ?? '',
+    avatarUrl:
+      (metadata.avatar_url as string | undefined) ??
+      (metadata.picture as string | undefined) ??
+      '',
+  };
 }
 
 export const authService = {
-  getCurrentUser(): User | null {
-    const stored = readStored();
-    return stored?.user ?? null;
+  async getCurrentUser(): Promise<User | null> {
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error || !user) {
+      return null;
+    }
+
+    return mapSupabaseUser(user);
   },
 
   async signInWithGoogle(): Promise<User> {
-    await new Promise((r) => setTimeout(r, 900));
-    const auth: StoredAuth = {
-      user: mockUser,
-      token: 'mock-google-token',
-    };
-    writeStored(auth);
-    return mockUser;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    // Google OAuth redirects the browser away from this page,
+    // so this normally won't be reached.
+    throw new Error('Google sign-in did not redirect.');
   },
 
   async signOut(): Promise<void> {
-    await new Promise((r) => setTimeout(r, 300));
-    writeStored(null);
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      throw error;
+    }
   },
 };
