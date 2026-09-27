@@ -1,19 +1,17 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { PrimaryButton } from '@/components/ui/PrimaryButton';
 import { Package } from 'lucide-react';
 
 export function LoginScreen() {
   const { signInWithGoogle } = useAuth();
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
   const handleSignIn = async () => {
     setLoading(true);
+
     try {
       await signInWithGoogle();
-      navigate('/home', { replace: true });
     } catch {
       setLoading(false);
     }
@@ -27,7 +25,10 @@ export function LoginScreen() {
         </div>
 
         <h1 className="mt-6 text-2xl font-bold text-ink-900">Delivery Manager</h1>
-        <p className="mt-2 text-center text-sm text-ink-500">Track your deliveries, payments and daily margins.</p>
+
+        <p className="mt-2 text-center text-sm text-ink-500">
+          Track your deliveries, payments and daily margins.
+        </p>
 
         <div className="mt-12 w-full max-w-sm">
           <PrimaryButton onClick={handleSignIn} loading={loading} size="lg">
@@ -43,7 +44,9 @@ export function LoginScreen() {
         </div>
       </div>
 
-      <p className="pb-8 text-center text-xs text-ink-400">By continuing you agree to our Terms & Privacy Policy</p>
+      <p className="pb-8 text-center text-xs text-ink-400">
+        By continuing you agree to our Terms & Privacy Policy
+      </p>
     </div>
   );
 }
