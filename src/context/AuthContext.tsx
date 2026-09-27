@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react';
 import type { User } from '@/types';
 import { authService } from '@/services/authService';
+import { supabase } from '@/lib/supabase';
 
 interface AuthContextValue {
   user: User | null;
@@ -17,14 +18,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const current = authService.getCurrentUser();
-    setUser(current);
-    setLoading(false);
+    let mounted = true;
+
+    const loadCurrentUser = async () => {
+      const current = await authService.getCurrentUser();
+
+      if (mounted) {
+        setUser(current);
+        setLoading(false);
+      }
+    };
+
+    loadCurrentUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return;
+
+      if (session?.user) {
+        const currentUser = await authService.getCurrentUser();
+
+        if (mounted) {
+          setUser(currentUser);
+        }
+      } else {
+        setUser(null);
+      }
+
+      setLoading(false);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const u = await authService.signInWithGoogle();
-    setUser(u);
+    await authService.signInWithGoogle();
   }, []);
 
   const signOut = useCallback(async () => {
