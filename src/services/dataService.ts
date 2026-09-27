@@ -1,5 +1,6 @@
 import type { Order, Restaurant } from '@/types';
 import { mockOrders, mockRestaurants } from './mockData';
+import { dutyService } from './dutyService';
 
 const STORAGE_KEY = 'delivery-manager-orders-v1';
 const RESTAURANT_KEY = 'delivery-manager-restaurants-v1';
@@ -75,6 +76,7 @@ export const orderService = {
       status: 'WAITING',
       createdAt: new Date().toISOString(),
       completedAt: null,
+      dutyId: dutyService.getCurrentDutyId(),
     };
     orders.unshift(order);
     saveOrders(orders);

@@ -14,11 +14,16 @@ type Tab = 'today' | 'all';
 
 export function OrdersScreen() {
   const navigate = useNavigate();
-  const { orders } = useAppData();
+  const { orders, currentDutyOrders } = useAppData();
   const [tab, setTab] = useState<Tab>('today');
 
-  const completed = useMemo(() => orders.filter((o) => o.status === 'COMPLETED'), [orders]);
-  const stats = computeStats(orders);
+  const todayCompleted = useMemo(
+    () => currentDutyOrders.filter((o) => o.status === 'COMPLETED'),
+    [currentDutyOrders],
+  );
+  const allCompleted = useMemo(() => orders.filter((o) => o.status === 'COMPLETED'), [orders]);
+  const completed = tab === 'today' ? todayCompleted : allCompleted;
+  const stats = computeStats(tab === 'today' ? currentDutyOrders : orders);
 
   return (
     <AppShell>

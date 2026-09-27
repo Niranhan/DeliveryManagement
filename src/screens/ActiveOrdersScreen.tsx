@@ -9,8 +9,8 @@ import { PackageOpen, Plus } from 'lucide-react';
 
 export function ActiveOrdersScreen() {
   const navigate = useNavigate();
-  const { orders } = useAppData();
-  const active = orders.filter((o) => o.status === 'WAITING');
+  const { currentDutyOrders } = useAppData();
+  const active = currentDutyOrders.filter((o) => o.status === 'WAITING');
 
   return (
     <AppShell>

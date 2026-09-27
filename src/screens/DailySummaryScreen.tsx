@@ -6,9 +6,9 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard } from '@/components/ui/StatCard';
 
 export function DailySummaryScreen() {
-  const { orders } = useAppData();
-  const stats = computeStats(orders);
-  const breakdown = computeRestaurantBreakdown(orders);
+  const { currentDutyOrders } = useAppData();
+  const stats = computeStats(currentDutyOrders);
+  const breakdown = computeRestaurantBreakdown(currentDutyOrders);
 
   return (
     <AppShell>

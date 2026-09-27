@@ -1,9 +1,20 @@
 export type OrderStatus = 'WAITING' | 'COMPLETED' | 'CANCELLED';
+export type DutyStatus = 'OPEN' | 'CLOSED';
 
 export interface Restaurant {
   id: string;
   name: string;
   createdAt: string;
+}
+
+export interface Duty {
+  id: string;
+  userId: string;
+  date: string;
+  status: DutyStatus;
+  openedAt: string;
+  closedAt: string | null;
+  closingReportGenerated: boolean;
 }
 
 export interface Order {
@@ -17,6 +28,7 @@ export interface Order {
   status: OrderStatus;
   createdAt: string;
   completedAt: string | null;
+  dutyId: string;
 }
 
 export interface User {

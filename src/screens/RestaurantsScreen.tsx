@@ -12,7 +12,7 @@ import { UtensilsCrossed, Plus } from 'lucide-react';
 
 export function RestaurantsScreen() {
   const navigate = useNavigate();
-  const { restaurants, orders } = useAppData();
+  const { restaurants, currentDutyOrders } = useAppData();
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -61,7 +61,7 @@ export function RestaurantsScreen() {
               <RestaurantCard
                 key={r.id}
                 restaurant={r}
-                orderCount={orderCountByRestaurant(orders, r.id)}
+                orderCount={orderCountByRestaurant(currentDutyOrders, r.id)}
                 onClick={() => navigate(`/restaurants/${r.id}/edit`)}
               />
             ))}

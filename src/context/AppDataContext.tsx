@@ -1,11 +1,14 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Order, Restaurant } from '@/types';
+import type { Duty, Order, Restaurant } from '@/types';
 import { orderService, restaurantService } from '@/services/dataService';
+import { dutyService } from '@/services/dutyService';
 
 interface AppDataContextValue {
   orders: Order[];
   restaurants: Restaurant[];
+  currentDuty: Duty;
+  currentDutyOrders: Order[];
   createOrder: (input: {
     restaurantId: string;
     restaurantName: string;
@@ -15,6 +18,7 @@ interface AppDataContextValue {
   completeOrder: (id: string, collected: number) => void;
   addRestaurant: (name: string) => Restaurant | null;
   updateRestaurant: (id: string, name: string) => void;
+  closeDuty: () => Duty;
   refresh: () => void;
 }
 
@@ -23,10 +27,12 @@ const AppDataContext = createContext<AppDataContextValue | undefined>(undefined)
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>(() => orderService.getAll());
   const [restaurants, setRestaurants] = useState<Restaurant[]>(() => restaurantService.getAll());
+  const [currentDuty, setCurrentDuty] = useState<Duty>(() => dutyService.getCurrentDuty());
 
   const refresh = useCallback(() => {
     setOrders(orderService.getAll());
     setRestaurants(restaurantService.getAll());
+    setCurrentDuty(dutyService.getCurrentDuty());
   }, []);
 
   const createOrder = useCallback<AppDataContextValue['createOrder']>((input) => {
@@ -53,17 +59,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setOrders(orderService.getAll());
   }, []);
 
+  const closeDuty = useCallback((): Duty => {
+    const newDuty = dutyService.closeCurrentDuty();
+    setCurrentDuty(newDuty);
+    return newDuty;
+  }, []);
+
+  const currentDutyOrders = useMemo(
+    () => orders.filter((o) => o.dutyId === currentDuty.id),
+    [orders, currentDuty.id],
+  );
+
   const value = useMemo(
     () => ({
       orders,
       restaurants,
+      currentDuty,
+      currentDutyOrders,
       createOrder,
       completeOrder,
       addRestaurant,
       updateRestaurant,
+      closeDuty,
       refresh,
     }),
-    [orders, restaurants, createOrder, completeOrder, addRestaurant, updateRestaurant, refresh],
+    [orders, restaurants, currentDuty, currentDutyOrders, createOrder, completeOrder, addRestaurant, updateRestaurant, closeDuty, refresh],
   );
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;

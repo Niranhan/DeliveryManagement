@@ -1,5 +1,7 @@
 import type { Order, Restaurant } from '@/types';
 
+const DEFAULT_DUTY_ID = 'duty-init';
+
 const now = () => new Date();
 const iso = (d: Date) => d.toISOString();
 const hoursAgo = (h: number) => {
@@ -24,7 +26,7 @@ export const mockRestaurants: Restaurant[] = [
   { id: 'r8', name: 'Cafe Central', createdAt: hoursAgo(8) },
 ];
 
-export const mockOrders: Order[] = [
+export const mockOrders: Order[] = ([
   // Active orders
   {
     id: 'o31',
@@ -172,4 +174,4 @@ export const mockOrders: Order[] = [
     createdAt: hoursAgo(8),
     completedAt: hoursAgo(7),
   },
-];
+] as Order[]).map((o) => ({ ...o, dutyId: DEFAULT_DUTY_ID }));

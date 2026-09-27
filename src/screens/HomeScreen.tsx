@@ -10,9 +10,9 @@ import { ChevronRight, Plus } from 'lucide-react';
 
 export function HomeScreen() {
   const navigate = useNavigate();
-  const { orders } = useAppData();
-  const stats = computeStats(orders);
-  const activeOrders = orders.filter((o) => o.status === 'WAITING');
+  const { currentDutyOrders } = useAppData();
+  const stats = computeStats(currentDutyOrders);
+  const activeOrders = currentDutyOrders.filter((o) => o.status === 'WAITING');
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const greeting = (() => {
     const h = new Date().getHours();
