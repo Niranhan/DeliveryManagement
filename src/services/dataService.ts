@@ -1,140 +1,279 @@
 import type { Order, Restaurant } from '@/types';
-import { mockOrders, mockRestaurants } from './mockData';
+import { supabase } from '@/lib/supabase';
 import { dutyService } from './dutyService';
 
-const STORAGE_KEY = 'delivery-manager-orders-v1';
-const RESTAURANT_KEY = 'delivery-manager-restaurants-v1';
-const ORDER_SEQ_KEY = 'delivery-manager-order-seq-v1';
+interface DbRestaurant {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
 
-function loadOrders(): Order[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Order[];
-  } catch {
-    // ignore
+interface DbOrder {
+  id: string;
+  user_id: string;
+  order_number: string;
+  restaurant_id: string;
+  customer_reference: string;
+  paid_to_restaurant: number;
+  collected_from_customer: number | null;
+  status: 'WAITING' | 'COMPLETED' | 'CANCELLED';
+  created_at: string;
+  completed_at: string | null;
+  duty_id: string;
+}
+
+function mapRestaurant(row: DbRestaurant): Restaurant {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+  };
+}
+
+function mapOrder(row: DbOrder, restaurantName: string): Order {
+  return {
+    id: row.id,
+    orderNumber: row.order_number,
+    restaurantId: row.restaurant_id,
+    restaurantName,
+    customerReference: row.customer_reference,
+    paidToRestaurant: Number(row.paid_to_restaurant),
+    collectedFromCustomer:
+      row.collected_from_customer == null
+        ? null
+        : Number(row.collected_from_customer),
+    status: row.status,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
+    dutyId: row.duty_id,
+  };
+}
+
+async function getCurrentUserId(): Promise<string> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) throw error;
+  if (!user) throw new Error('You must be signed in.');
+
+  return user.id;
+}
+
+async function fetchRestaurants(): Promise<Restaurant[]> {
+  const { data, error } = await supabase
+    .from('restaurants')
+    .select('*')
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+
+  return (data as DbRestaurant[]).map(mapRestaurant);
+}
+
+async function fetchOrders(): Promise<Order[]> {
+  const [restaurantResult, orderResult] = await Promise.all([
+    supabase
+      .from('restaurants')
+      .select('id, name'),
+
+    supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false }),
+  ]);
+
+  if (restaurantResult.error) throw restaurantResult.error;
+  if (orderResult.error) throw orderResult.error;
+
+  const restaurantNames = new Map(
+    (restaurantResult.data as { id: string; name: string }[]).map((r) => [
+      r.id,
+      r.name,
+    ]),
+  );
+
+  return (orderResult.data as DbOrder[]).map((row) =>
+    mapOrder(row, restaurantNames.get(row.restaurant_id) ?? 'Unknown Restaurant'),
+  );
+}
+
+async function nextOrderNumber(): Promise<string> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('order_number')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  let highest = 0;
+
+  for (const row of data ?? []) {
+    const number = Number.parseInt(
+      String(row.order_number).replace('#', ''),
+      10,
+    );
+
+    if (Number.isFinite(number) && number > highest) {
+      highest = number;
+    }
   }
-  return [...mockOrders];
-}
 
-function loadRestaurants(): Restaurant[] {
-  try {
-    const raw = localStorage.getItem(RESTAURANT_KEY);
-    if (raw) return JSON.parse(raw) as Restaurant[];
-  } catch {
-    // ignore
-  }
-  return [...mockRestaurants];
-}
-
-function saveOrders(orders: Order[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-}
-
-function saveRestaurants(restaurants: Restaurant[]): void {
-  localStorage.setItem(RESTAURANT_KEY, JSON.stringify(restaurants));
-}
-
-function nextOrderNumber(): string {
-  const current = Number(localStorage.getItem(ORDER_SEQ_KEY) || '35');
-  const next = current + 1;
-  localStorage.setItem(ORDER_SEQ_KEY, String(next));
-  return `#${String(next).padStart(3, '0')}`;
+  return `#${String(highest + 1).padStart(3, '0')}`;
 }
 
 export const orderService = {
-  getAll(): Order[] {
-    return loadOrders();
+  async getAll(): Promise<Order[]> {
+    return fetchOrders();
   },
 
-  getActive(): Order[] {
-    return loadOrders().filter((o) => o.status === 'WAITING');
+  async getActive(): Promise<Order[]> {
+    const orders = await fetchOrders();
+    return orders.filter((order) => order.status === 'WAITING');
   },
 
-  getCompleted(): Order[] {
-    return loadOrders().filter((o) => o.status === 'COMPLETED');
+  async getCompleted(): Promise<Order[]> {
+    const orders = await fetchOrders();
+    return orders.filter((order) => order.status === 'COMPLETED');
   },
 
-  getById(id: string): Order | undefined {
-    return loadOrders().find((o) => o.id === id);
+  async getById(id: string): Promise<Order | undefined> {
+    const orders = await fetchOrders();
+    return orders.find((order) => order.id === id);
   },
 
-  createOrder(input: {
+  async createOrder(input: {
     restaurantId: string;
     restaurantName: string;
     paidToRestaurant: number;
     customerReference: string;
-  }): Order {
-    const orders = loadOrders();
-    const order: Order = {
-      id: `o${Date.now()}`,
-      orderNumber: nextOrderNumber(),
-      restaurantId: input.restaurantId,
-      restaurantName: input.restaurantName,
-      customerReference: input.customerReference.trim(),
-      paidToRestaurant: input.paidToRestaurant,
-      collectedFromCustomer: null,
-      status: 'WAITING',
-      createdAt: new Date().toISOString(),
-      completedAt: null,
-      dutyId: dutyService.getCurrentDutyId(),
-    };
-    orders.unshift(order);
-    saveOrders(orders);
-    return order;
+  }): Promise<Order> {
+    const userId = await getCurrentUserId();
+    const dutyId = await dutyService.getCurrentDutyId();
+    const orderNumber = await nextOrderNumber();
+
+    const { data, error } = await supabase
+      .from('orders')
+      .insert({
+        user_id: userId,
+        order_number: orderNumber,
+        restaurant_id: input.restaurantId,
+        customer_reference: input.customerReference.trim(),
+        paid_to_restaurant: input.paidToRestaurant,
+        collected_from_customer: null,
+        status: 'WAITING',
+        duty_id: dutyId,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return mapOrder(
+      data as DbOrder,
+      input.restaurantName,
+    );
   },
 
-  completeOrder(id: string, collectedFromCustomer: number): Order | undefined {
-    const orders = loadOrders();
-    const idx = orders.findIndex((o) => o.id === id);
-    if (idx === -1) return undefined;
-    orders[idx] = {
-      ...orders[idx],
-      collectedFromCustomer,
-      status: 'COMPLETED',
-      completedAt: new Date().toISOString(),
-    };
-    saveOrders(orders);
-    return orders[idx];
-  },
+  async completeOrder(
+    id: string,
+    collectedFromCustomer: number,
+  ): Promise<Order | undefined> {
+    const { data, error } = await supabase
+      .from('orders')
+      .update({
+        collected_from_customer: collectedFromCustomer,
+        status: 'COMPLETED',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .maybeSingle();
 
-  resetToMock(): void {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(ORDER_SEQ_KEY);
+    if (error) throw error;
+    if (!data) return undefined;
+
+    const restaurants = await fetchRestaurants();
+    const restaurant = restaurants.find(
+      (item) => item.id === data.restaurant_id,
+    );
+
+    return mapOrder(
+      data as DbOrder,
+      restaurant?.name ?? 'Unknown Restaurant',
+    );
   },
 };
 
 export const restaurantService = {
-  getAll(): Restaurant[] {
-    return loadRestaurants();
+  async getAll(): Promise<Restaurant[]> {
+    return fetchRestaurants();
   },
 
-  getById(id: string): Restaurant | undefined {
-    return loadRestaurants().find((r) => r.id === id);
+  async getById(id: string): Promise<Restaurant | undefined> {
+    const { data, error } = await supabase
+      .from('restaurants')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return undefined;
+
+    return mapRestaurant(data as DbRestaurant);
   },
 
-  createRestaurant(name: string): Restaurant {
-    const restaurants = loadRestaurants();
-    const restaurant: Restaurant = {
-      id: `r${Date.now()}`,
-      name: name.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    restaurants.push(restaurant);
-    saveRestaurants(restaurants);
-    return restaurant;
+  async createRestaurant(name: string): Promise<Restaurant> {
+    const userId = await getCurrentUserId();
+
+    const { data, error } = await supabase
+      .from('restaurants')
+      .insert({
+        user_id: userId,
+        name: name.trim(),
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return mapRestaurant(data as DbRestaurant);
   },
 
-  updateRestaurant(id: string, name: string): Restaurant | undefined {
-    const restaurants = loadRestaurants();
-    const idx = restaurants.findIndex((r) => r.id === id);
-    if (idx === -1) return undefined;
-    restaurants[idx] = { ...restaurants[idx], name: name.trim() };
-    saveRestaurants(restaurants);
-    return restaurants[idx];
+  async updateRestaurant(
+    id: string,
+    name: string,
+  ): Promise<Restaurant | undefined> {
+    const { data, error } = await supabase
+      .from('restaurants')
+      .update({
+        name: name.trim(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return undefined;
+
+    return mapRestaurant(data as DbRestaurant);
   },
 
-  nameExists(name: string): boolean {
-    const target = name.trim().toLowerCase();
-    return loadRestaurants().some((r) => r.name.toLowerCase() === target);
+  async nameExists(name: string): Promise<boolean> {
+    const target = name.trim();
+
+    const { data, error } = await supabase
+      .from('restaurants')
+      .select('id')
+      .ilike('name', target)
+      .limit(1);
+
+    if (error) throw error;
+
+    return (data?.length ?? 0) > 0;
   },
 };
