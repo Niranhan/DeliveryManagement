@@ -1,4 +1,3 @@
-```tsx
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAppData } from '@/context/AppDataContext';
@@ -23,7 +22,10 @@ export function CompleteDeliveryScreen() {
   if (!order) {
     return (
       <AppShell showNav={false}>
-        <PageHeader title="Complete Delivery" onBack={() => navigate(-1)} />
+        <PageHeader
+          title="Complete Delivery"
+          onBack={() => navigate(-1)}
+        />
         <div className="page-pad pt-6 text-center text-sm text-ink-500">
           Order not found.
         </div>
@@ -34,10 +36,11 @@ export function CompleteDeliveryScreen() {
   const isCompleted = done || order.status === 'COMPLETED';
 
   const collectedNum = Number(collected);
-  const hasInput = collected.trim() !== '' && !isNaN(collectedNum);
+  const hasInput =
+    collected.trim() !== '' && !isNaN(collectedNum);
 
   const completedAmount =
-    order.collectedFromCustomer != null
+    order.collectedFromCustomer !== null
       ? order.collectedFromCustomer
       : collectedNum;
 
@@ -46,6 +49,9 @@ export function CompleteDeliveryScreen() {
     : hasInput
       ? collectedNum - order.paidToRestaurant
       : 0;
+
+  const marginClass =
+    margin >= 0 ? 'text-success-600' : 'text-danger-600';
 
   const handleComplete = async () => {
     const amt = Number(collected);
@@ -68,7 +74,9 @@ export function CompleteDeliveryScreen() {
       setDone(true);
     } catch (err) {
       console.error('Failed to complete delivery:', err);
-      setError('Could not complete the delivery. Please try again.');
+      setError(
+        'Could not complete the delivery. Please try again.',
+      );
     } finally {
       setSaving(false);
     }
@@ -79,7 +87,10 @@ export function CompleteDeliveryScreen() {
       <AppShell showNav={false}>
         <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-success-100">
-            <Check size={32} className="text-success-600" />
+            <Check
+              size={32}
+              className="text-success-600"
+            />
           </div>
 
           <h2 className="mt-4 text-lg font-bold text-ink-900">
@@ -95,11 +106,7 @@ export function CompleteDeliveryScreen() {
               Margin
             </p>
 
-            <p
-              className={`mt-1 text-2xl font-bold ${
-                margin >= 0 ? 'text-success-600' : 'text-danger-600'
-              }`}
-            >
+            <p className={`mt-1 text-2xl font-bold ${marginClass}`}>
               {margin >= 0 ? '+' : '-'}Rs.{' '}
               {Math.abs(margin).toLocaleString('en-IN')}
             </p>
@@ -108,7 +115,9 @@ export function CompleteDeliveryScreen() {
           <div className="mt-6 w-full max-w-xs">
             <PrimaryButton
               variant="secondary"
-              onClick={() => navigate('/active', { replace: true })}
+              onClick={() =>
+                navigate('/active', { replace: true })
+              }
             >
               Back to Active Orders
             </PrimaryButton>
@@ -120,7 +129,10 @@ export function CompleteDeliveryScreen() {
 
   return (
     <AppShell showNav={false}>
-      <PageHeader title="Complete Delivery" onBack={() => navigate(-1)} />
+      <PageHeader
+        title="Complete Delivery"
+        onBack={() => navigate(-1)}
+      />
 
       <div className="page-pad pt-2 pb-6 space-y-5">
         <div className="rounded-2xl border border-ink-100 bg-white p-4 shadow-card">
@@ -179,11 +191,11 @@ export function CompleteDeliveryScreen() {
               </span>
 
               <span
-                className={`text-2xl font-bold ${
+                className={
                   margin >= 0
-                    ? 'text-success-600'
-                    : 'text-danger-600'
-                }`}
+                    ? 'text-2xl font-bold text-success-600'
+                    : 'text-2xl font-bold text-danger-600'
+                }
               >
                 {margin >= 0 ? '+' : '-'}Rs.{' '}
                 {Math.abs(margin).toLocaleString('en-IN')}
@@ -198,33 +210,13 @@ export function CompleteDeliveryScreen() {
           </div>
         )}
 
-        <PrimaryButton onClick={handleComplete} loading={saving}>
+        <PrimaryButton
+          onClick={handleComplete}
+          loading={saving}
+        >
           {saving ? 'Completing...' : 'Complete Delivery'}
         </PrimaryButton>
       </div>
     </AppShell>
   );
 }
-```
-
-This is the only file you need to change for this issue.
-
-### What this fixes
-
-After entering, for example, **Rs. 500**:
-
-1. `completeOrder()` waits for Supabase to finish.
-2. The success screen appears.
-3. If you refresh while still on that page:
-
-   * Supabase returns the order as `COMPLETED`.
-   * The screen sees `order.status === 'COMPLETED'`.
-   * It stays on **Delivery Completed**.
-   * It uses the saved `collectedFromCustomer` amount to calculate the margin.
-4. You won't be asked to enter the amount again.
-
-After replacing it, test exactly this:
-
-**Complete delivery → stay on success page → refresh.**
-
-It should remain on **Delivery Completed** with the same margin.
