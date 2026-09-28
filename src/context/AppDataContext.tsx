@@ -39,18 +39,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [currentDuty, setCurrentDuty] = useState<Duty | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const refresh = useCallback(async () => {
-    const [loadedOrders, loadedRestaurants, loadedDuty] =
-      await Promise.all([
-        orderService.getAll(),
-        restaurantService.getAll(),
-        dutyService.getCurrentDuty(),
-      ]);
+    try {
+      setLoadError('');
 
-    setOrders(loadedOrders);
-    setRestaurants(loadedRestaurants);
-    setCurrentDuty(loadedDuty);
+      const [loadedOrders, loadedRestaurants, loadedDuty] =
+        await Promise.all([
+          orderService.getAll(),
+          restaurantService.getAll(),
+          dutyService.getCurrentDuty(),
+        ]);
+
+      setOrders(loadedOrders);
+      setRestaurants(loadedRestaurants);
+      setCurrentDuty(loadedDuty);
+    } catch (error) {
+      console.error('Failed to refresh app data:', error);
+      setLoadError('Could not load your data. Please try again.');
+    }
   }, []);
 
   useEffect(() => {
@@ -58,6 +66,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
     const load = async () => {
       try {
+        setLoadError('');
+
         const [loadedOrders, loadedRestaurants, loadedDuty] =
           await Promise.all([
             orderService.getAll(),
@@ -72,6 +82,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         setCurrentDuty(loadedDuty);
       } catch (error) {
         console.error('Failed to load app data:', error);
+
+        if (mounted) {
+          setLoadError(
+            'Could not load your data. Please try again.',
+          );
+        }
       } finally {
         if (mounted) {
           setLoading(false);
@@ -108,7 +124,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      const restaurant = await restaurantService.createRestaurant(name);
+      const restaurant =
+        await restaurantService.createRestaurant(name);
+
       setRestaurants(await restaurantService.getAll());
 
       return restaurant;
@@ -130,16 +148,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
     setCurrentDuty(newDuty);
 
-    // Important:
-    // Orders are NOT deleted.
-    // We simply load them again from Supabase.
+    // Orders are preserved in Supabase.
+    // Loading them again keeps historical orders available.
     setOrders(await orderService.getAll());
 
     return newDuty;
   }, []);
 
   const currentDutyOrders = useMemo(() => {
-    if (!currentDuty) return [];
+    if (!currentDuty) {
+      return [];
+    }
 
     return orders.filter(
       (order) => order.dutyId === currentDuty.id,
@@ -174,6 +193,32 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       refresh,
     ],
   );
+
+  // Do not render the application screens until the initial
+  // Supabase data and current Duty have both loaded.
+  if (loading || !currentDuty) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink-50">
+        {loadError ? (
+          <div className="px-6 text-center">
+            <p className="text-sm text-danger-600">
+              {loadError}
+            </p>
+
+            <button
+              type="button"
+              onClick={refresh}
+              className="mt-4 rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white"
+            >
+              Try Again
+            </button>
+          </div>
+        ) : (
+          <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+        )}
+      </div>
+    );
+  }
 
   return (
     <AppDataContext.Provider value={value}>
