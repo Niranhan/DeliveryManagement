@@ -38,6 +38,61 @@ export interface User {
   avatarUrl: string;
 }
 
+export interface MonthlySalary {
+  id: string;
+  userId: string;
+  month: string;
+  salaryAmount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SalaryAdvance {
+  id: string;
+  userId: string;
+  amount: number;
+  advanceDate: string;
+  note: string;
+  createdAt: string;
+}
+
+export interface CompanyLiability {
+  id: string;
+  userId: string;
+  amount: number;
+  usageDate: string;
+  note: string;
+  createdAt: string;
+}
+
+export interface DutyReport {
+  id: string;
+  userId: string;
+  dutyId: string;
+  reportDate: string;
+  orderCount: number;
+  completedOrderCount: number;
+  totalPaidToRestaurants: number;
+  totalCollectedFromCustomers: number;
+  totalMargin: number;
+  companyMoneyUsed: number;
+  closedAt: string;
+  createdAt: string;
+}
+
+export interface MonthlyReport {
+  month: string;
+  totalOrders: number;
+  completedOrders: number;
+  totalPaid: number;
+  totalCollected: number;
+  deliveryMargin: number;
+  salary: number | null;
+  totalAdvances: number;
+  totalLiabilities: number;
+  amountToReceive: number;
+}
+
 export const marginOf = (order: Pick<Order, 'collectedFromCustomer' | 'paidToRestaurant'>): number => {
   if (order.collectedFromCustomer == null) return 0;
   return order.collectedFromCustomer - order.paidToRestaurant;

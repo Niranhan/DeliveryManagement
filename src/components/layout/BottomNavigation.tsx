@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom';
-import { Home, ClipboardList, UtensilsCrossed, MoreHorizontal } from 'lucide-react';
+import { Home, ClipboardList, UtensilsCrossed, History, MoreHorizontal } from 'lucide-react';
 
 const items = [
   { to: '/home', label: 'Home', icon: Home },
   { to: '/active', label: 'Orders', icon: ClipboardList },
   { to: '/restaurants', label: 'Restaurants', icon: UtensilsCrossed },
+  { to: '/history', label: 'History', icon: History },
   { to: '/more', label: 'More', icon: MoreHorizontal },
 ];
 

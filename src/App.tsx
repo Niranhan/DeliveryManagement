@@ -14,6 +14,12 @@ import { AddOrderScreen } from '@/screens/AddOrderScreen';
 import { CompleteDeliveryScreen } from '@/screens/CompleteDeliveryScreen';
 import { DailySummaryScreen } from '@/screens/DailySummaryScreen';
 import { MoreScreen } from '@/screens/MoreScreen';
+import { HistoryScreen } from '@/screens/HistoryScreen';
+import { DutyHistoryScreen } from '@/screens/DutyHistoryScreen';
+import { MonthlyOverviewScreen } from '@/screens/MonthlyOverviewScreen';
+import { SalaryScreen } from '@/screens/SalaryScreen';
+import { SalaryAdvancesScreen } from '@/screens/SalaryAdvancesScreen';
+import { CompanyLiabilityScreen } from '@/screens/CompanyLiabilityScreen';
 
 export default function App() {
   return (
@@ -38,6 +44,12 @@ export default function App() {
                     <Route path="/restaurants/:id/edit" element={<EditRestaurantScreen />} />
                     <Route path="/summary" element={<DailySummaryScreen />} />
                     <Route path="/more" element={<MoreScreen />} />
+                    <Route path="/history" element={<HistoryScreen />} />
+                    <Route path="/history/duty" element={<DutyHistoryScreen />} />
+                    <Route path="/monthly" element={<MonthlyOverviewScreen />} />
+                    <Route path="/salary" element={<SalaryScreen />} />
+                    <Route path="/advances" element={<SalaryAdvancesScreen />} />
+                    <Route path="/liabilities" element={<CompanyLiabilityScreen />} />
                     <Route path="*" element={<Navigate to="/home" replace />} />
                   </Routes>
                 </AppDataProvider>
