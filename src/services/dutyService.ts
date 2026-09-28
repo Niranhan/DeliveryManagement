@@ -1,100 +1,136 @@
 import type { Duty, Order } from '@/types';
+import { supabase } from '@/lib/supabase';
 
-const DUTY_KEY = 'delivery-manager-duties-v1';
-const CURRENT_DUTY_KEY = 'delivery-manager-current-duty-v1';
-const DEFAULT_DUTY_ID = 'duty-init';
+interface DbDuty {
+  id: string;
+  user_id: string;
+  date: string;
+  status: 'OPEN' | 'CLOSED';
+  opened_at: string;
+  closed_at: string | null;
+  closing_report_generated: boolean;
+}
 
-function loadDuties(): Duty[] {
-  try {
-    const raw = localStorage.getItem(DUTY_KEY);
-    if (raw) return JSON.parse(raw) as Duty[];
-  } catch {
-    // ignore
-  }
-  const initial: Duty = {
-    id: DEFAULT_DUTY_ID,
-    userId: 'u1',
-    date: new Date().toISOString().slice(0, 10),
-    status: 'OPEN',
-    openedAt: new Date().toISOString(),
-    closedAt: null,
-    closingReportGenerated: false,
+function mapDuty(row: DbDuty): Duty {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    date: row.date,
+    status: row.status,
+    openedAt: row.opened_at,
+    closedAt: row.closed_at,
+    closingReportGenerated: row.closing_report_generated,
   };
-  localStorage.setItem(DUTY_KEY, JSON.stringify([initial]));
-  return [initial];
 }
 
-function saveDuties(duties: Duty[]): void {
-  localStorage.setItem(DUTY_KEY, JSON.stringify(duties));
+async function getUserId(): Promise<string> {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) throw error;
+  if (!user) throw new Error('You must be signed in.');
+
+  return user.id;
 }
 
-function loadCurrentDutyId(): string {
-  const id = localStorage.getItem(CURRENT_DUTY_KEY);
-  if (id) return id;
-  const duties = loadDuties();
-  const open = duties.find((d) => d.status === 'OPEN');
-  const currentId = open?.id ?? DEFAULT_DUTY_ID;
-  localStorage.setItem(CURRENT_DUTY_KEY, currentId);
-  return currentId;
+async function findOpenDuty(): Promise<Duty | null> {
+  const { data, error } = await supabase
+    .from('duties')
+    .select('*')
+    .eq('status', 'OPEN')
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return data ? mapDuty(data as DbDuty) : null;
 }
 
-function saveCurrentDutyId(id: string): void {
-  localStorage.setItem(CURRENT_DUTY_KEY, id);
+async function createOpenDuty(userId: string): Promise<Duty> {
+  const { data, error } = await supabase
+    .from('duties')
+    .insert({
+      user_id: userId,
+      date: new Date().toISOString().slice(0, 10),
+      status: 'OPEN',
+      opened_at: new Date().toISOString(),
+      closed_at: null,
+      closing_report_generated: false,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return mapDuty(data as DbDuty);
 }
 
 export const dutyService = {
-  getCurrentDuty(): Duty {
-    const duties = loadDuties();
-    const currentId = loadCurrentDutyId();
-    return duties.find((d) => d.id === currentId) ?? duties[0];
+  async getCurrentDuty(): Promise<Duty> {
+    const userId = await getUserId();
+
+    const existing = await findOpenDuty();
+
+    if (existing) return existing;
+
+    return createOpenDuty(userId);
   },
 
-  getCurrentDutyId(): string {
-    return loadCurrentDutyId();
+  async getCurrentDutyId(): Promise<string> {
+    const duty = await this.getCurrentDuty();
+    return duty.id;
   },
 
-  isCurrentDutyClosed(): boolean {
-    return this.getCurrentDuty().status === 'CLOSED';
+  async isCurrentDutyClosed(): Promise<boolean> {
+    const duty = await this.getCurrentDuty();
+    return duty.status === 'CLOSED';
   },
 
-  closeCurrentDuty(): Duty {
-    const duties = loadDuties();
-    const currentId = loadCurrentDutyId();
-    const idx = duties.findIndex((d) => d.id === currentId);
-    if (idx === -1) throw new Error('Current duty not found');
-    duties[idx] = {
-      ...duties[idx],
-      status: 'CLOSED',
-      closedAt: new Date().toISOString(),
-      closingReportGenerated: true,
-    };
-    saveDuties(duties);
+  async closeCurrentDuty(): Promise<Duty> {
+    const current = await this.getCurrentDuty();
 
-    const newDuty: Duty = {
-      id: `duty-${Date.now()}`,
-      userId: duties[idx].userId,
-      date: new Date().toISOString().slice(0, 10),
-      status: 'OPEN',
-      openedAt: new Date().toISOString(),
-      closedAt: null,
-      closingReportGenerated: false,
-    };
-    duties.push(newDuty);
-    saveDuties(duties);
-    saveCurrentDutyId(newDuty.id);
-    return newDuty;
+    const closedAt = new Date().toISOString();
+
+    const { error: closeError } = await supabase
+      .from('duties')
+      .update({
+        status: 'CLOSED',
+        closed_at: closedAt,
+        closing_report_generated: true,
+      })
+      .eq('id', current.id);
+
+    if (closeError) throw closeError;
+
+    return createOpenDuty(current.userId);
   },
 
-  getOrdersForCurrentDuty(orders: Order[]): Order[] {
-    const currentId = loadCurrentDutyId();
-    return orders.filter((o) => o.dutyId === currentId);
+  getOrdersForCurrentDuty(
+    orders: Order[],
+    currentDutyId: string,
+  ): Order[] {
+    return orders.filter((order) => order.dutyId === currentDutyId);
   },
 
-  getOrdersForDuty(orders: Order[], dutyId: string): Order[] {
-    return orders.filter((o) => o.dutyId === dutyId);
+  getOrdersForDuty(
+    orders: Order[],
+    dutyId: string,
+  ): Order[] {
+    return orders.filter((order) => order.dutyId === dutyId);
   },
 
-  getClosedDuties(): Duty[] {
-    return loadDuties().filter((d) => d.status === 'CLOSED');
+  async getClosedDuties(): Promise<Duty[]> {
+    const { data, error } = await supabase
+      .from('duties')
+      .select('*')
+      .eq('status', 'CLOSED')
+      .order('closed_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data as DbDuty[]).map(mapDuty);
   },
 };
