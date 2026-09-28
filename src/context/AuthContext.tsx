@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '@/types';
 import { authService } from '@/services/authService';
@@ -13,6 +20,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function mapSupabaseUser(user: {
+  id: string;
+  email?: string;
+  user_metadata?: Record<string, unknown>;
+}): User {
+  const metadata = user.user_metadata ?? {};
+
+  return {
+    id: user.id,
+    name:
+      (metadata.full_name as string | undefined) ??
+      (metadata.name as string | undefined) ??
+      user.email ??
+      '',
+    email: user.email ?? '',
+    avatarUrl:
+      (metadata.avatar_url as string | undefined) ??
+      (metadata.picture as string | undefined) ??
+      '',
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,34 +49,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const loadCurrentUser = async () => {
-      const current = await authService.getCurrentUser();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
 
-      if (mounted) {
-        setUser(current);
-        setLoading(false);
+      setUser(session?.user ? mapSupabaseUser(session.user) : null);
+      setLoading(false);
+    });
+
+    const initializeAuth = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        setUser(session?.user ? mapSupabaseUser(session.user) : null);
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+
+        if (mounted) {
+          setUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
-    loadCurrentUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (!mounted) return;
-
-      if (session?.user) {
-        const currentUser = await authService.getCurrentUser();
-
-        if (mounted) {
-          setUser(currentUser);
-        }
-      } else {
-        setUser(null);
-      }
-
-      setLoading(false);
-    });
+    initializeAuth();
 
     return () => {
       mounted = false;
@@ -65,16 +98,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, signInWithGoogle, signOut }),
+    () => ({
+      user,
+      loading,
+      signInWithGoogle,
+      signOut,
+    }),
     [user, loading, signInWithGoogle, signOut],
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+
+  if (!ctx) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+
   return ctx;
 }
