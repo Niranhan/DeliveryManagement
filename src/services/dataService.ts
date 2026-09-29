@@ -1,7 +1,6 @@
 import type { Order, Restaurant } from '@/types';
 import { supabase } from '@/lib/supabase';
 import { requireUserId } from '@/lib/auth';
-import { dutyService } from './dutyService';
 
 interface DbRestaurant {
   id: string;
@@ -95,30 +94,25 @@ async function fetchOrders(): Promise<Order[]> {
   );
 }
 
+// Fetches only the single most recent order — stays fast permanently,
+// unlike scanning the full order history.
 async function nextOrderNumber(): Promise<string> {
   const userId = await requireUserId();
   const { data, error } = await supabase
     .from('orders')
     .select('order_number')
     .eq('user_id', userId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(1);
 
   if (error) throw error;
 
-  let highest = 0;
+  const highest =
+    data && data.length > 0
+      ? Number.parseInt(String(data[0].order_number).replace('#', ''), 10)
+      : 0;
 
-  for (const row of data ?? []) {
-    const number = Number.parseInt(
-      String(row.order_number).replace('#', ''),
-      10,
-    );
-
-    if (Number.isFinite(number) && number > highest) {
-      highest = number;
-    }
-  }
-
-  return `#${String(highest + 1).padStart(3, '0')}`;
+  return `#${String((Number.isFinite(highest) ? highest : 0) + 1).padStart(3, '0')}`;
 }
 
 export const orderService = {
@@ -141,14 +135,16 @@ export const orderService = {
     return orders.find((order) => order.id === id);
   },
 
+  // dutyId is now passed in by the caller (already known from cached
+  // currentDuty) instead of being fetched again here.
   async createOrder(input: {
     restaurantId: string;
     restaurantName: string;
     paidToRestaurant: number;
     customerReference: string;
+    dutyId: string;
   }): Promise<Order> {
     const userId = await requireUserId();
-    const dutyId = await dutyService.getCurrentDutyId();
     const orderNumber = await nextOrderNumber();
 
     const { data, error } = await supabase
@@ -161,7 +157,7 @@ export const orderService = {
         paid_to_restaurant: input.paidToRestaurant,
         collected_from_customer: null,
         status: 'WAITING',
-        duty_id: dutyId,
+        duty_id: input.dutyId,
       })
       .select()
       .single();
@@ -178,7 +174,7 @@ export const orderService = {
           paid_to_restaurant: input.paidToRestaurant,
           collected_from_customer: null,
           status: 'WAITING',
-          duty_id: dutyId,
+          duty_id: input.dutyId,
         })
         .select()
         .single();
@@ -193,9 +189,12 @@ export const orderService = {
     return mapOrder(data as DbOrder, input.restaurantName);
   },
 
+  // restaurantName is now passed in by the caller (already known from the
+  // cached orders list) instead of re-fetching all restaurants here.
   async completeOrder(
     id: string,
     collectedFromCustomer: number,
+    restaurantName: string,
   ): Promise<Order | undefined> {
     const userId = await requireUserId();
     const { data, error } = await supabase
@@ -214,15 +213,7 @@ export const orderService = {
     if (error) throw error;
     if (!data) throw new Error('Order not found, not yours, or already completed.');
 
-    const restaurants = await fetchRestaurants();
-    const restaurant = restaurants.find(
-      (item) => item.id === data.restaurant_id,
-    );
-
-    return mapOrder(
-      data as DbOrder,
-      restaurant?.name ?? 'Unknown Restaurant',
-    );
+    return mapOrder(data as DbOrder, restaurantName);
   },
 };
 
@@ -244,7 +235,10 @@ export const restaurantService = {
     return mapRestaurant(data as DbRestaurant);
   },
 
-  async createRestaurant(name: string): Promise<Restaurant> {
+  // Relies on the restaurants_user_name_uk unique index instead of a
+  // separate nameExists() pre-check — one round trip instead of two.
+  // Returns null on a duplicate name, same contract callers already expect.
+  async createRestaurant(name: string): Promise<Restaurant | null> {
     const userId = await requireUserId();
 
     const { data, error } = await supabase
@@ -256,7 +250,12 @@ export const restaurantService = {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '23505') {
+        return null;
+      }
+      throw error;
+    }
 
     return mapRestaurant(data as DbRestaurant);
   },
@@ -283,6 +282,8 @@ export const restaurantService = {
     return mapRestaurant(data as DbRestaurant);
   },
 
+  // Kept for any live "this name is taken" typing feedback elsewhere in
+  // the UI — no longer used by the create/write path above.
   async nameExists(name: string): Promise<boolean> {
     const target = name.trim();
     const userId = await requireUserId();
