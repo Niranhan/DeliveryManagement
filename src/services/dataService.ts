@@ -1,5 +1,6 @@
 import type { Order, Restaurant } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { requireUserId } from '@/lib/auth';
 import { dutyService } from './dutyService';
 
 interface DbRestaurant {
@@ -51,22 +52,12 @@ function mapOrder(row: DbOrder, restaurantName: string): Order {
   };
 }
 
-async function getCurrentUserId(): Promise<string> {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error) throw error;
-  if (!user) throw new Error('You must be signed in.');
-
-  return user.id;
-}
-
 async function fetchRestaurants(): Promise<Restaurant[]> {
+  const userId = await requireUserId();
   const { data, error } = await supabase
     .from('restaurants')
     .select('*')
+    .eq('user_id', userId)
     .order('name', { ascending: true });
 
   if (error) throw error;
@@ -75,14 +66,17 @@ async function fetchRestaurants(): Promise<Restaurant[]> {
 }
 
 async function fetchOrders(): Promise<Order[]> {
+  const userId = await requireUserId();
   const [restaurantResult, orderResult] = await Promise.all([
     supabase
       .from('restaurants')
-      .select('id, name'),
+      .select('id, name')
+      .eq('user_id', userId),
 
     supabase
       .from('orders')
       .select('*')
+      .eq('user_id', userId)
       .order('created_at', { ascending: false }),
   ]);
 
@@ -102,9 +96,11 @@ async function fetchOrders(): Promise<Order[]> {
 }
 
 async function nextOrderNumber(): Promise<string> {
+  const userId = await requireUserId();
   const { data, error } = await supabase
     .from('orders')
     .select('order_number')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -151,7 +147,7 @@ export const orderService = {
     paidToRestaurant: number;
     customerReference: string;
   }): Promise<Order> {
-    const userId = await getCurrentUserId();
+    const userId = await requireUserId();
     const dutyId = await dutyService.getCurrentDutyId();
     const orderNumber = await nextOrderNumber();
 
@@ -170,31 +166,53 @@ export const orderService = {
       .select()
       .single();
 
+    if (error && error.code === '23505') {
+      const retryNumber = await nextOrderNumber();
+      const { data: retryData, error: retryError } = await supabase
+        .from('orders')
+        .insert({
+          user_id: userId,
+          order_number: retryNumber,
+          restaurant_id: input.restaurantId,
+          customer_reference: input.customerReference.trim(),
+          paid_to_restaurant: input.paidToRestaurant,
+          collected_from_customer: null,
+          status: 'WAITING',
+          duty_id: dutyId,
+        })
+        .select()
+        .single();
+
+      if (retryError) throw retryError;
+
+      return mapOrder(retryData as DbOrder, input.restaurantName);
+    }
+
     if (error) throw error;
 
-    return mapOrder(
-      data as DbOrder,
-      input.restaurantName,
-    );
+    return mapOrder(data as DbOrder, input.restaurantName);
   },
 
   async completeOrder(
     id: string,
     collectedFromCustomer: number,
   ): Promise<Order | undefined> {
+    const userId = await requireUserId();
     const { data, error } = await supabase
       .from('orders')
       .update({
-        collected_from_customer: collectedFromCustomer,
         status: 'COMPLETED',
         completed_at: new Date().toISOString(),
+        collected_from_customer: collectedFromCustomer,
       })
       .eq('id', id)
+      .eq('user_id', userId)
+      .eq('status', 'WAITING')
       .select()
       .maybeSingle();
 
     if (error) throw error;
-    if (!data) return undefined;
+    if (!data) throw new Error('Order not found, not yours, or already completed.');
 
     const restaurants = await fetchRestaurants();
     const restaurant = restaurants.find(
@@ -227,7 +245,7 @@ export const restaurantService = {
   },
 
   async createRestaurant(name: string): Promise<Restaurant> {
-    const userId = await getCurrentUserId();
+    const userId = await requireUserId();
 
     const { data, error } = await supabase
       .from('restaurants')
@@ -247,6 +265,7 @@ export const restaurantService = {
     id: string,
     name: string,
   ): Promise<Restaurant | undefined> {
+    const userId = await requireUserId();
     const { data, error } = await supabase
       .from('restaurants')
       .update({
@@ -254,6 +273,7 @@ export const restaurantService = {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
+      .eq('user_id', userId)
       .select()
       .maybeSingle();
 
@@ -265,10 +285,12 @@ export const restaurantService = {
 
   async nameExists(name: string): Promise<boolean> {
     const target = name.trim();
+    const userId = await requireUserId();
 
     const { data, error } = await supabase
       .from('restaurants')
       .select('id')
+      .eq('user_id', userId)
       .ilike('name', target)
       .limit(1);
 

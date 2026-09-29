@@ -1,5 +1,6 @@
 import type { SalaryAdvance } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { requireUserId } from '@/lib/auth';
 
 function mapRow(row: Record<string, unknown>): SalaryAdvance {
   return {
@@ -13,20 +14,22 @@ function mapRow(row: Record<string, unknown>): SalaryAdvance {
 }
 
 function monthRange(month: string): { start: string; end: string } {
-  const start = `${month}-01T00:00:00.000Z`;
   const [year, mon] = month.split('-').map(Number);
+  const start = `${month}-01`;
   const endMonth = mon === 12 ? 1 : mon + 1;
   const endYear = mon === 12 ? year + 1 : year;
-  const end = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00.000Z`;
+  const end = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
   return { start, end };
 }
 
 export const salaryAdvanceService = {
   async getForMonth(month: string): Promise<SalaryAdvance[]> {
+    const userId = await requireUserId();
     const { start, end } = monthRange(month);
     const { data, error } = await supabase
       .from('salary_advances')
       .select('*')
+      .eq('user_id', userId)
       .gte('advance_date', start)
       .lt('advance_date', end)
       .order('advance_date', { ascending: false });
@@ -37,18 +40,12 @@ export const salaryAdvanceService = {
   },
 
   async create(input: { amount: number; advanceDate: string; note: string }): Promise<SalaryAdvance> {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) throw userError;
-    if (!user) throw new Error('You must be signed in.');
+    const userId = await requireUserId();
 
     const { data, error } = await supabase
       .from('salary_advances')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         amount: input.amount,
         advance_date: input.advanceDate,
         note: input.note.trim(),
@@ -62,7 +59,12 @@ export const salaryAdvanceService = {
   },
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabase.from('salary_advances').delete().eq('id', id);
+    const userId = await requireUserId();
+    const { error } = await supabase
+      .from('salary_advances')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
     if (error) throw error;
   },
 };

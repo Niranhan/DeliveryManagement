@@ -1,5 +1,14 @@
+export function todayIsoDate(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kathmandu',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 export function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  return todayIsoDate().slice(0, 7);
 }
 
 export function formatMonthLabel(month: string): string {
@@ -26,8 +35,4 @@ export function nextMonth(month: string): string {
 
 export function isCurrentMonth(month: string): boolean {
   return month === currentMonth();
-}
-
-export function todayIsoDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }

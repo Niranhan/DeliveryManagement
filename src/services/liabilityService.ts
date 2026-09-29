@@ -1,5 +1,6 @@
 import type { CompanyLiability } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { requireUserId } from '@/lib/auth';
 
 function mapRow(row: Record<string, unknown>): CompanyLiability {
   return {
@@ -13,20 +14,22 @@ function mapRow(row: Record<string, unknown>): CompanyLiability {
 }
 
 function monthRange(month: string): { start: string; end: string } {
-  const start = `${month}-01T00:00:00.000Z`;
   const [year, mon] = month.split('-').map(Number);
+  const start = `${month}-01`;
   const endMonth = mon === 12 ? 1 : mon + 1;
   const endYear = mon === 12 ? year + 1 : year;
-  const end = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00.000Z`;
+  const end = `${endYear}-${String(endMonth).padStart(2, '0')}-01`;
   return { start, end };
 }
 
 export const liabilityService = {
   async getForMonth(month: string): Promise<CompanyLiability[]> {
+    const userId = await requireUserId();
     const { start, end } = monthRange(month);
     const { data, error } = await supabase
       .from('company_liabilities')
       .select('*')
+      .eq('user_id', userId)
       .gte('usage_date', start)
       .lt('usage_date', end)
       .order('usage_date', { ascending: false });
@@ -37,18 +40,12 @@ export const liabilityService = {
   },
 
   async create(input: { amount: number; usageDate: string; note: string }): Promise<CompanyLiability> {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) throw userError;
-    if (!user) throw new Error('You must be signed in.');
+    const userId = await requireUserId();
 
     const { data, error } = await supabase
       .from('company_liabilities')
       .insert({
-        user_id: user.id,
+        user_id: userId,
         amount: input.amount,
         usage_date: input.usageDate,
         note: input.note.trim(),
@@ -62,7 +59,12 @@ export const liabilityService = {
   },
 
   async delete(id: string): Promise<void> {
-    const { error } = await supabase.from('company_liabilities').delete().eq('id', id);
+    const userId = await requireUserId();
+    const { error } = await supabase
+      .from('company_liabilities')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
     if (error) throw error;
   },
 };

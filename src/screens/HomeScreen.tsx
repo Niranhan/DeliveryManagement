@@ -47,7 +47,8 @@ export function HomeScreen() {
     };
   }, []);
 
-  const settlement = monthlyReport && monthlyReport.salary != null ? monthlyReport.salary - monthlyReport.totalAdvances - monthlyReport.totalLiabilities : 0;
+  const settlement = monthlyReport && monthlyReport.salary != null && monthlyReport.amountToReceive != null ? monthlyReport.amountToReceive : 0;
+  const settlementAvailable = monthlyReport && monthlyReport.amountToReceive != null;
   const isNegative = settlement < 0;
 
   return (
@@ -149,7 +150,7 @@ export function HomeScreen() {
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-ink-500">Salary</span>
                   <span className="font-semibold text-ink-900">
-                    {monthlyReport.salary != null ? formatRsPlain(monthlyReport.salary) : 'Not set'}
+                    {monthlyReport.salary != null ? formatRsPlain(monthlyReport.salary) : '—'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
@@ -165,7 +166,7 @@ export function HomeScreen() {
                     {isNegative ? 'Payable to Company' : 'Amount to Receive'}
                   </span>
                   <span className={`text-sm font-bold ${isNegative ? 'text-danger-600' : 'text-success-600'}`}>
-                    {formatRsPlain(Math.abs(settlement))}
+                    {settlementAvailable ? formatRsPlain(Math.abs(settlement)) : 'Not available'}
                   </span>
                 </div>
               </div>

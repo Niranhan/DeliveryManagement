@@ -16,6 +16,7 @@ import { DailySummaryScreen } from '@/screens/DailySummaryScreen';
 import { MoreScreen } from '@/screens/MoreScreen';
 import { HistoryScreen } from '@/screens/HistoryScreen';
 import { DutyHistoryScreen } from '@/screens/DutyHistoryScreen';
+import { DutyDetailScreen } from '@/screens/DutyDetailScreen';
 import { MonthlyOverviewScreen } from '@/screens/MonthlyOverviewScreen';
 import { SalaryScreen } from '@/screens/SalaryScreen';
 import { SalaryAdvancesScreen } from '@/screens/SalaryAdvancesScreen';
@@ -46,6 +47,7 @@ export default function App() {
                     <Route path="/more" element={<MoreScreen />} />
                     <Route path="/history" element={<HistoryScreen />} />
                     <Route path="/history/duty" element={<DutyHistoryScreen />} />
+                    <Route path="/duty/:id" element={<DutyDetailScreen />} />
                     <Route path="/monthly" element={<MonthlyOverviewScreen />} />
                     <Route path="/salary" element={<SalaryScreen />} />
                     <Route path="/advances" element={<SalaryAdvancesScreen />} />

@@ -1,11 +1,14 @@
 import type { MonthlySalary } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { requireUserId } from '@/lib/auth';
 
 export const salaryService = {
   async getForMonth(month: string): Promise<MonthlySalary | null> {
+    const userId = await requireUserId();
     const { data, error } = await supabase
       .from('monthly_salaries')
       .select('*')
+      .eq('user_id', userId)
       .eq('month', month)
       .maybeSingle();
 
@@ -24,19 +27,13 @@ export const salaryService = {
   },
 
   async setForMonth(month: string, amount: number): Promise<MonthlySalary> {
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError) throw userError;
-    if (!user) throw new Error('You must be signed in.');
+    const userId = await requireUserId();
 
     const { data, error } = await supabase
       .from('monthly_salaries')
       .upsert(
         {
-          user_id: user.id,
+          user_id: userId,
           month,
           salary_amount: amount,
           updated_at: new Date().toISOString(),

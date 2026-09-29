@@ -1,5 +1,6 @@
 import type { Duty, Order } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { requireUserId } from '@/lib/auth';
 
 interface DbDuty {
   id: string;
@@ -39,6 +40,7 @@ async function findOpenDuty(): Promise<Duty | null> {
   const { data, error } = await supabase
     .from('duties')
     .select('*')
+    .eq('user_id', await requireUserId())
     .eq('status', 'OPEN')
     .order('opened_at', { ascending: false })
     .limit(1)
@@ -69,6 +71,8 @@ async function createOpenDuty(userId: string): Promise<Duty> {
 }
 
 export const dutyService = {
+  findOpenDuty,
+
   async getCurrentDuty(): Promise<Duty> {
     const userId = await getUserId();
 
@@ -94,6 +98,17 @@ export const dutyService = {
 
     const closedAt = new Date().toISOString();
 
+    const { count, error: waitingCheckError } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('duty_id', current.id)
+      .eq('status', 'WAITING');
+    if (waitingCheckError) throw waitingCheckError;
+    if (count && count > 0) {
+      throw new Error('Complete all waiting orders before closing the duty.');
+    }
+
+    // closing_report_generated currently has no accounting meaning
     const { error: closeError } = await supabase
       .from('duties')
       .update({
@@ -126,6 +141,7 @@ export const dutyService = {
     const { data, error } = await supabase
       .from('duties')
       .select('*')
+      .eq('user_id', await requireUserId())
       .eq('status', 'CLOSED')
       .order('closed_at', { ascending: false });
 

@@ -84,13 +84,14 @@ export interface MonthlyReport {
   month: string;
   totalOrders: number;
   completedOrders: number;
+  waitingOrders: number;
   totalPaid: number;
   totalCollected: number;
   deliveryMargin: number;
   salary: number | null;
   totalAdvances: number;
   totalLiabilities: number;
-  amountToReceive: number;
+  amountToReceive: number | null;
 }
 
 export const marginOf = (order: Pick<Order, 'collectedFromCustomer' | 'paidToRestaurant'>): number => {

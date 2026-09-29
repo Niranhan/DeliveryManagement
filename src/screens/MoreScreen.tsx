@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useAppData } from '@/context/AppDataContext';
 import { liabilityService } from '@/services/liabilityService';
+import { dutyService } from '@/services/dutyService';
+import { supabase } from '@/lib/supabase';
 import { todayIsoDate } from '@/utils/month';
 import { AppShell } from '@/components/layout/AppShell';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -76,6 +78,19 @@ export function MoreScreen() {
     setLiabilityError('');
     setClosing(true);
     try {
+      const openDuty = await dutyService.findOpenDuty();
+      if (openDuty) {
+        const { count } = await supabase
+          .from('orders')
+          .select('id', { count: 'exact', head: true })
+          .eq('duty_id', openDuty.id)
+          .eq('status', 'WAITING');
+        if (count && count > 0) {
+          setLiabilityError('Complete all waiting orders before closing the duty.');
+          setClosing(false);
+          return;
+        }
+      }
       await liabilityService.create({
         amount: amt,
         usageDate: todayIsoDate(),

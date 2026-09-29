@@ -41,7 +41,8 @@ export function MonthlyOverviewScreen() {
     };
   }, [month]);
 
-  const settlement = report && report.salary != null ? report.salary - report.totalAdvances - report.totalLiabilities : 0;
+  const settlement = report && report.amountToReceive != null ? report.amountToReceive : 0;
+  const settlementAvailable = report ? report.amountToReceive != null : false;
   const isNegative = report ? settlement < 0 : false;
 
   return (
@@ -85,7 +86,7 @@ export function MonthlyOverviewScreen() {
                     <span className="text-sm font-semibold text-ink-700">Monthly Salary</span>
                   </div>
                   <span className="text-base font-bold text-ink-900">
-                    {report.salary != null ? formatRsPlain(report.salary) : 'Not set'}
+                    {report.salary != null ? formatRsPlain(report.salary) : '—'}
                   </span>
                 </div>
 
@@ -127,7 +128,7 @@ export function MonthlyOverviewScreen() {
                     </span>
                   </div>
                   <span className={`text-lg font-bold ${isNegative ? 'text-danger-600' : 'text-success-600'}`}>
-                    {formatRsPlain(Math.abs(settlement))}
+                    {settlementAvailable ? formatRsPlain(Math.abs(settlement)) : 'Not available'}
                   </span>
                 </div>
               </div>
