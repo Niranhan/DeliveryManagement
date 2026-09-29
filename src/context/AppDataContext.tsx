@@ -64,21 +64,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     ]);
   };
 
-  // Writes update the cache directly from the server's response instead of
-  // re-fetching the whole list — removes the "wait twice" delay.
+  // dutyId comes from the already-cached currentDuty — no extra fetch.
   const createOrder: AppDataContextValue['createOrder'] = async (input) => {
-    const order = await orderService.createOrder(input);
+    const duty = currentDutyQuery.data as Duty;
+    const order = await orderService.createOrder({
+      ...input,
+      dutyId: duty.id,
+    });
     queryClient.setQueryData<Order[]>(['orders'], (prev) =>
       prev ? [order, ...prev] : [order],
     );
     return order;
   };
 
+  // restaurantName is read from the already-cached order — no extra fetch
+  // of the whole restaurants table just to relabel one order.
   const completeOrder: AppDataContextValue['completeOrder'] = async (
     id,
     collected,
   ) => {
-    const updated = await orderService.completeOrder(id, collected);
+    const cachedOrders = queryClient.getQueryData<Order[]>(['orders']) ?? [];
+    const existing = cachedOrders.find((o) => o.id === id);
+    const restaurantName = existing?.restaurantName ?? 'Unknown Restaurant';
+
+    const updated = await orderService.completeOrder(id, collected, restaurantName);
     if (updated) {
       queryClient.setQueryData<Order[]>(['orders'], (prev) =>
         prev ? prev.map((o) => (o.id === id ? updated : o)) : prev,
@@ -86,12 +95,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Relies on the DB unique constraint via createRestaurant's null return
+  // instead of a separate nameExists() pre-check — one round trip.
   const addRestaurant: AppDataContextValue['addRestaurant'] = async (name) => {
-    if (await restaurantService.nameExists(name)) {
-      return null;
-    }
-
     const restaurant = await restaurantService.createRestaurant(name);
+    if (!restaurant) return null;
 
     queryClient.setQueryData<Restaurant[]>(['restaurants'], (prev) => {
       const next = prev ? [...prev, restaurant] : [restaurant];
@@ -126,7 +134,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const closeDuty: AppDataContextValue['closeDuty'] = async () => {
     const newDuty = await dutyService.closeCurrentDuty();
     queryClient.setQueryData(['currentDuty'], newDuty);
-    // No order changes on close, so no orders refetch needed here.
     return newDuty;
   };
 
