@@ -1,12 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Duty, Order, Restaurant } from '@/types';
 import { orderService, restaurantService } from '@/services/dataService';
 import { dutyService } from '@/services/dutyService';
@@ -35,164 +29,129 @@ const AppDataContext = createContext<AppDataContextValue | undefined>(
 );
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [currentDuty, setCurrentDuty] = useState<Duty | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
+  const queryClient = useQueryClient();
 
-  const refresh = useCallback(async () => {
-    try {
-      setLoadError('');
+  const ordersQuery = useQuery({
+    queryKey: ['orders'],
+    queryFn: () => orderService.getAll(),
+  });
 
-      const [loadedOrders, loadedRestaurants, loadedDuty] =
-        await Promise.all([
-          orderService.getAll(),
-          restaurantService.getAll(),
-          dutyService.getCurrentDuty(),
-        ]);
+  const restaurantsQuery = useQuery({
+    queryKey: ['restaurants'],
+    queryFn: () => restaurantService.getAll(),
+  });
 
-      setOrders(loadedOrders);
-      setRestaurants(loadedRestaurants);
-      setCurrentDuty(loadedDuty);
-    } catch (error) {
-      console.error('Failed to refresh app data:', error);
-      setLoadError('Could not load your data. Please try again.');
-    }
-  }, []);
+  const currentDutyQuery = useQuery({
+    queryKey: ['currentDuty'],
+    queryFn: () => dutyService.getCurrentDuty(),
+  });
 
-  useEffect(() => {
-    let mounted = true;
+  const loading =
+    ordersQuery.isLoading ||
+    restaurantsQuery.isLoading ||
+    currentDutyQuery.isLoading;
 
-    const load = async () => {
-      try {
-        setLoadError('');
+  const loadError =
+    ordersQuery.isError || restaurantsQuery.isError || currentDutyQuery.isError
+      ? 'Could not load your data. Please try again.'
+      : '';
 
-        const [loadedOrders, loadedRestaurants, loadedDuty] =
-          await Promise.all([
-            orderService.getAll(),
-            restaurantService.getAll(),
-            dutyService.getCurrentDuty(),
-          ]);
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['restaurants'] }),
+      queryClient.invalidateQueries({ queryKey: ['currentDuty'] }),
+    ]);
+  };
 
-        if (!mounted) return;
-
-        setOrders(loadedOrders);
-        setRestaurants(loadedRestaurants);
-        setCurrentDuty(loadedDuty);
-      } catch (error) {
-        console.error('Failed to load app data:', error);
-
-        if (mounted) {
-          setLoadError(
-            'Could not load your data. Please try again.',
-          );
-        }
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const createOrder = useCallback<
-    AppDataContextValue['createOrder']
-  >(async (input) => {
+  // Writes update the cache directly from the server's response instead of
+  // re-fetching the whole list — removes the "wait twice" delay.
+  const createOrder: AppDataContextValue['createOrder'] = async (input) => {
     const order = await orderService.createOrder(input);
-    setOrders(await orderService.getAll());
+    queryClient.setQueryData<Order[]>(['orders'], (prev) =>
+      prev ? [order, ...prev] : [order],
+    );
     return order;
-  }, []);
+  };
 
-  const completeOrder = useCallback(
-    async (id: string, collected: number) => {
-      await orderService.completeOrder(id, collected);
-      setOrders(await orderService.getAll());
-    },
-    [],
-  );
+  const completeOrder: AppDataContextValue['completeOrder'] = async (
+    id,
+    collected,
+  ) => {
+    const updated = await orderService.completeOrder(id, collected);
+    if (updated) {
+      queryClient.setQueryData<Order[]>(['orders'], (prev) =>
+        prev ? prev.map((o) => (o.id === id ? updated : o)) : prev,
+      );
+    }
+  };
 
-  const addRestaurant = useCallback(
-    async (name: string): Promise<Restaurant | null> => {
-      if (await restaurantService.nameExists(name)) {
-        return null;
-      }
+  const addRestaurant: AppDataContextValue['addRestaurant'] = async (name) => {
+    if (await restaurantService.nameExists(name)) {
+      return null;
+    }
 
-      const restaurant =
-        await restaurantService.createRestaurant(name);
+    const restaurant = await restaurantService.createRestaurant(name);
 
-      setRestaurants(await restaurantService.getAll());
+    queryClient.setQueryData<Restaurant[]>(['restaurants'], (prev) => {
+      const next = prev ? [...prev, restaurant] : [restaurant];
+      return next.sort((a, b) => a.name.localeCompare(b.name));
+    });
 
-      return restaurant;
-    },
-    [],
-  );
+    return restaurant;
+  };
 
-  const updateRestaurant = useCallback(
-    async (id: string, name: string) => {
-      await restaurantService.updateRestaurant(id, name);
-      setRestaurants(await restaurantService.getAll());
-      setOrders(await orderService.getAll());
-    },
-    [],
-  );
+  const updateRestaurant: AppDataContextValue['updateRestaurant'] = async (
+    id,
+    name,
+  ) => {
+    const updated = await restaurantService.updateRestaurant(id, name);
+    if (!updated) return;
 
-  const closeDuty = useCallback(async (): Promise<Duty> => {
+    queryClient.setQueryData<Restaurant[]>(['restaurants'], (prev) => {
+      const next = prev ? prev.map((r) => (r.id === id ? updated : r)) : prev;
+      return next ? [...next].sort((a, b) => a.name.localeCompare(b.name)) : next;
+    });
+
+    // Orders embed the restaurant name directly, so keep those in sync too.
+    queryClient.setQueryData<Order[]>(['orders'], (prev) =>
+      prev
+        ? prev.map((o) =>
+            o.restaurantId === id ? { ...o, restaurantName: updated.name } : o,
+          )
+        : prev,
+    );
+  };
+
+  const closeDuty: AppDataContextValue['closeDuty'] = async () => {
     const newDuty = await dutyService.closeCurrentDuty();
-
-    setCurrentDuty(newDuty);
-
-    // Orders are preserved in Supabase.
-    // Loading them again keeps historical orders available.
-    setOrders(await orderService.getAll());
-
+    queryClient.setQueryData(['currentDuty'], newDuty);
+    // No order changes on close, so no orders refetch needed here.
     return newDuty;
-  }, []);
+  };
+
+  const currentDuty = currentDutyQuery.data ?? null;
+  const orders = ordersQuery.data ?? [];
+  const restaurants = restaurantsQuery.data ?? [];
 
   const currentDutyOrders = useMemo(() => {
-    if (!currentDuty) {
-      return [];
-    }
-
-    return orders.filter(
-      (order) => order.dutyId === currentDuty.id,
-    );
+    if (!currentDuty) return [];
+    return orders.filter((order) => order.dutyId === currentDuty.id);
   }, [orders, currentDuty]);
 
-  const value = useMemo(
-    () => ({
-      orders,
-      restaurants,
-      currentDuty: currentDuty as Duty,
-      currentDutyOrders,
-      loading,
-      createOrder,
-      completeOrder,
-      addRestaurant,
-      updateRestaurant,
-      closeDuty,
-      refresh,
-    }),
-    [
-      orders,
-      restaurants,
-      currentDuty,
-      currentDutyOrders,
-      loading,
-      createOrder,
-      completeOrder,
-      addRestaurant,
-      updateRestaurant,
-      closeDuty,
-      refresh,
-    ],
-  );
+  const value: AppDataContextValue = {
+    orders,
+    restaurants,
+    currentDuty: currentDuty as Duty,
+    currentDutyOrders,
+    loading,
+    createOrder,
+    completeOrder,
+    addRestaurant,
+    updateRestaurant,
+    closeDuty,
+    refresh,
+  };
 
   // Do not render the application screens until the initial
   // Supabase data and current Duty have both loaded.
@@ -201,9 +160,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       <div className="flex min-h-screen items-center justify-center bg-ink-50">
         {loadError ? (
           <div className="px-6 text-center">
-            <p className="text-sm text-danger-600">
-              {loadError}
-            </p>
+            <p className="text-sm text-danger-600">{loadError}</p>
 
             <button
               type="button"
@@ -221,9 +178,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppDataContext.Provider value={value}>
-      {children}
-    </AppDataContext.Provider>
+    <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>
   );
 }
 
