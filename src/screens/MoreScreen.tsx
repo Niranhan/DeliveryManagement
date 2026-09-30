@@ -23,7 +23,12 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-type DialogState = 'none' | 'confirm' | 'company-money' | 'active-remaining' | 'success';
+type DialogState =
+  | 'none'
+  | 'confirm'
+  | 'company-money'
+  | 'active-remaining'
+  | 'success';
 
 export function MoreScreen() {
   const navigate = useNavigate();
@@ -31,12 +36,16 @@ export function MoreScreen() {
   const { currentDuty, currentDutyOrders, closeDuty } = useAppData();
   const [dialog, setDialog] = useState<DialogState>('none');
   const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState('');
 
   const [liabilityAmount, setLiabilityAmount] = useState('');
   const [liabilityNote, setLiabilityNote] = useState('');
   const [liabilityError, setLiabilityError] = useState('');
 
-  const dutyClosed = currentDuty.status === 'CLOSED';
+  // A duty exists AND is OPEN. Under the new lifecycle, currentDuty
+  // is null between a close and the next order — that is a valid
+  // "no active duty" state, not an error.
+  const hasOpenDuty = currentDuty !== null && currentDuty.status === 'OPEN';
   const activeCount = currentDutyOrders.filter((o) => o.status === 'WAITING').length;
 
   const handleSignOut = async () => {
@@ -45,7 +54,8 @@ export function MoreScreen() {
   };
 
   const handleCloseDuty = () => {
-    if (dutyClosed) return;
+    if (!hasOpenDuty) return;
+    setCloseError('');
     setDialog('confirm');
   };
 
@@ -58,12 +68,18 @@ export function MoreScreen() {
   };
 
   const handleNoCompanyMoney = async () => {
+    setLiabilityError('');
     setClosing(true);
     try {
       await closeDuty();
       setDialog('success');
-    } catch {
-      setDialog('none');
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : 'Could not close the duty. Please try again.';
+      // Keep the dialog open so the user sees the failure and can retry.
+      setLiabilityError(msg);
     } finally {
       setClosing(false);
     }
@@ -78,19 +94,30 @@ export function MoreScreen() {
     setLiabilityError('');
     setClosing(true);
     try {
+      // Re-check waiting orders atomically-ish: if another tab added a
+      // WAITING order between the earlier check and now, refuse the close
+      // instead of orphaning it. This is a soft guard — the DB trigger
+      // is the real backstop.
       const openDuty = await dutyService.findOpenDuty();
       if (openDuty) {
-        const { count } = await supabase
+        const { count, error: waitingErr } = await supabase
           .from('orders')
           .select('id', { count: 'exact', head: true })
           .eq('duty_id', openDuty.id)
           .eq('status', 'WAITING');
+        if (waitingErr) throw waitingErr;
         if (count && count > 0) {
           setLiabilityError('Complete all waiting orders before closing the duty.');
           setClosing(false);
           return;
         }
+      } else {
+        // Someone (or this same user in another tab) already closed it.
+        setLiabilityError('This duty is already closed.');
+        setClosing(false);
+        return;
       }
+
       await liabilityService.create({
         amount: amt,
         usageDate: todayIsoDate(),
@@ -100,12 +127,35 @@ export function MoreScreen() {
       setLiabilityAmount('');
       setLiabilityNote('');
       setDialog('success');
-    } catch {
-      setLiabilityError('Could not save. Please try again.');
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : 'Could not save. Please try again.';
+      setLiabilityError(msg);
     } finally {
       setClosing(false);
     }
   };
+
+  // Label + subtitle for the Close Duty tile.
+  const closeTile = hasOpenDuty
+    ? {
+        label: 'Close Duty',
+        subtitle: "End today's work session",
+        icon: <Power size={20} />,
+        iconClasses: 'bg-warning-100 text-warning-600',
+        disabled: false,
+        showChevron: true,
+      }
+    : {
+        label: 'No Active Duty',
+        subtitle: 'Your next duty starts on the next order',
+        icon: <CheckCircle2 size={20} />,
+        iconClasses: 'bg-success-100 text-success-600',
+        disabled: true,
+        showChevron: false,
+      };
 
   return (
     <AppShell>
@@ -200,30 +250,30 @@ export function MoreScreen() {
 
           <button
             onClick={handleCloseDuty}
-            disabled={dutyClosed}
+            disabled={closeTile.disabled}
             className={`no-tap flex w-full items-center justify-between rounded-2xl border border-ink-100 bg-white p-4 shadow-card active:shadow-card-hover ${
-              dutyClosed ? 'opacity-50' : ''
+              closeTile.disabled ? 'opacity-60' : ''
             }`}
           >
             <div className="flex items-center gap-3">
               <div
-                className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                  dutyClosed ? 'bg-success-100 text-success-600' : 'bg-warning-100 text-warning-600'
-                }`}
+                className={`flex h-10 w-10 items-center justify-center rounded-xl ${closeTile.iconClasses}`}
               >
-                {dutyClosed ? <CheckCircle2 size={20} /> : <Power size={20} />}
+                {closeTile.icon}
               </div>
               <div className="text-left">
-                <p className="text-sm font-semibold text-ink-900">
-                  {dutyClosed ? "Today's Duty Closed" : 'Close Duty'}
-                </p>
-                <p className="text-xs text-ink-400">
-                  {dutyClosed ? 'Start a new duty to continue' : "End today's work session"}
-                </p>
+                <p className="text-sm font-semibold text-ink-900">{closeTile.label}</p>
+                <p className="text-xs text-ink-400">{closeTile.subtitle}</p>
               </div>
             </div>
-            {!dutyClosed && <ChevronRight size={18} className="text-ink-300" />}
+            {closeTile.showChevron && <ChevronRight size={18} className="text-ink-300" />}
           </button>
+
+          {closeError && (
+            <p role="alert" className="px-1 text-xs text-danger-600">
+              {closeError}
+            </p>
+          )}
         </div>
 
         <div className="pt-2">
@@ -240,7 +290,7 @@ export function MoreScreen() {
       <ConfirmDialog
         open={dialog === 'confirm'}
         title="Close Today's Duty?"
-        description="This will end your current work session. Your orders will be preserved in history. You can start a new duty afterward."
+        description="This will end your current work session. Your orders will be preserved in history. Your next duty will start automatically when you pick up your next order."
         confirmLabel="Continue"
         variant="danger"
         icon={<Power size={24} className="text-warning-600" />}
@@ -250,11 +300,20 @@ export function MoreScreen() {
 
       {/* Company Money prompt */}
       {dialog === 'company-money' && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/40" onClick={() => !closing && setDialog('none')} />
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => !closing && setDialog('none')}
+          />
           <div className="relative mx-auto w-full max-w-[480px] rounded-t-3xl bg-white p-5 pb-6 shadow-xl sm:rounded-3xl">
             <h2 className="text-lg font-bold text-ink-900">Company Money Used?</h2>
-            <p className="mt-1.5 text-sm text-ink-500">Did you use any company money for personal use today?</p>
+            <p className="mt-1.5 text-sm text-ink-500">
+              Did you use any company money for personal use today?
+            </p>
 
             <div className="mt-4 space-y-3">
               <AmountInput
@@ -267,7 +326,9 @@ export function MoreScreen() {
                 }}
               />
               <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-400">Note (optional)</label>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-400">
+                  Note (optional)
+                </label>
                 <input
                   value={liabilityNote}
                   onChange={(e) => setLiabilityNote(e.target.value)}
@@ -275,14 +336,26 @@ export function MoreScreen() {
                   className="h-12 w-full rounded-2xl border border-ink-200 bg-white px-4 text-sm text-ink-900 outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
                 />
               </div>
-              {liabilityError && <p className="text-xs text-danger-600">{liabilityError}</p>}
+              {liabilityError && (
+                <p role="alert" className="text-xs text-danger-600">
+                  {liabilityError}
+                </p>
+              )}
             </div>
 
             <div className="mt-5 space-y-2.5">
-              <PrimaryButton onClick={handleAddLiabilityAndClose} loading={closing}>
+              <PrimaryButton
+                onClick={handleAddLiabilityAndClose}
+                loading={closing}
+                disabled={closing}
+              >
                 Add Liability & Close Duty
               </PrimaryButton>
-              <PrimaryButton variant="secondary" onClick={handleNoCompanyMoney} disabled={closing}>
+              <PrimaryButton
+                variant="secondary"
+                onClick={handleNoCompanyMoney}
+                disabled={closing}
+              >
                 No, I didn't
               </PrimaryButton>
             </div>
@@ -294,7 +367,9 @@ export function MoreScreen() {
       <ConfirmDialog
         open={dialog === 'active-remaining'}
         title="Active Orders Remaining"
-        description={`You still have ${activeCount} active order${activeCount === 1 ? '' : 's'}. Complete them before closing your duty.`}
+        description={`You still have ${activeCount} active order${
+          activeCount === 1 ? '' : 's'
+        }. Complete them before closing your duty.`}
         confirmLabel="Go to Active Orders"
         icon={<AlertTriangle size={24} className="text-warning-600" />}
         onConfirm={() => {
@@ -308,7 +383,7 @@ export function MoreScreen() {
       <ConfirmDialog
         open={dialog === 'success'}
         title="Duty Closed Successfully"
-        description="Your duty has been closed and a new duty has been started. View your duty history to download reports."
+        description="Your duty has been closed. Your next duty will start automatically when you pick up your next order. View your duty history to download reports."
         confirmLabel="Done"
         icon={<CheckCircle2 size={24} className="text-success-600" />}
         onConfirm={() => setDialog('none')}
