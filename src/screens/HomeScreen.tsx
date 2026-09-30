@@ -14,10 +14,14 @@ import { ChevronRight, Plus, Calendar } from 'lucide-react';
 
 export function HomeScreen() {
   const navigate = useNavigate();
-  const { currentDutyOrders } = useAppData();
+  const { currentDuty, currentDutyOrders } = useAppData();
   const stats = computeStats(currentDutyOrders);
   const activeOrders = currentDutyOrders.filter((o) => o.status === 'WAITING');
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
   const greeting = (() => {
     const h = new Date().getHours();
     if (h < 12) return 'Good morning';
@@ -47,7 +51,10 @@ export function HomeScreen() {
     };
   }, []);
 
-  const settlement = monthlyReport && monthlyReport.salary != null && monthlyReport.amountToReceive != null ? monthlyReport.amountToReceive : 0;
+  const settlement =
+    monthlyReport && monthlyReport.salary != null && monthlyReport.amountToReceive != null
+      ? monthlyReport.amountToReceive
+      : 0;
   const settlementAvailable = monthlyReport && monthlyReport.amountToReceive != null;
   const isNegative = settlement < 0;
 
@@ -60,7 +67,16 @@ export function HomeScreen() {
       </div>
 
       <div className="page-pad mt-5">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Today's Duty</p>
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">
+            {currentDuty ? "Today's Duty" : 'No Active Duty'}
+          </p>
+          {!currentDuty && (
+            <span className="text-xs font-medium text-ink-400">
+              Starts on next order
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2.5">
           <StatCard label="Orders" value={String(stats.completedCount)} emphasis />
           <StatCard label="Margin" value={formatRsPlain(stats.totalMargin)} tone="success" emphasis />
@@ -89,7 +105,11 @@ export function HomeScreen() {
         {activeOrders.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-ink-200 bg-white p-6 text-center">
             <p className="text-sm font-medium text-ink-700">No active deliveries</p>
-            <p className="mt-0.5 text-xs text-ink-400">All your deliveries are completed.</p>
+            <p className="mt-0.5 text-xs text-ink-400">
+              {currentDuty
+                ? 'All your deliveries are completed.'
+                : 'Tap Pick Up Order to start your next duty.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-3">
