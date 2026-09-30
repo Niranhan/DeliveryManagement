@@ -4,14 +4,29 @@ import { formatRs, formatRsPlain, marginOf } from '@/types';
 import { StatusBadge } from './ui/StatusBadge';
 import { ChevronRight, Trash2 } from 'lucide-react';
 
+// + AFTER
 interface OrderCardProps {
   order: Order;
   variant?: 'active' | 'completed' | 'compact';
   onClick?: () => void;
   action?: ReactNode;
+  /**
+   * Only rendered on the 'active' variant. When provided, a small trash
+   * button appears in the card header. The parent owns confirmation
+   * and the actual delete call — this card only reports the tap.
+   */
+  onDelete?: () => void;
+  deleting?: boolean;
 }
 
-export function OrderCard({ order, variant = 'active', onClick, action }: OrderCardProps) {
+export function OrderCard({
+  order,
+  variant = 'active',
+  onClick,
+  action,
+  onDelete,
+  deleting = false,
+}: OrderCardProps) {
   const margin = marginOf(order);
 
   if (variant === 'completed') {
