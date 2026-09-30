@@ -8,7 +8,7 @@ import { dutyService } from '@/services/dutyService';
 interface AppDataContextValue {
   orders: Order[];
   restaurants: Restaurant[];
-  currentDuty: Duty;
+  currentDuty: Duty | null;
   currentDutyOrders: Order[];
   loading: boolean;
   createOrder: (input: {
@@ -43,7 +43,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const currentDutyQuery = useQuery({
     queryKey: ['currentDuty'],
-    queryFn: () => dutyService.getCurrentDuty(),
+    queryFn: () => dutyService.getCurrentDuty(), // may resolve to null
   });
 
   const loading =
@@ -64,21 +64,33 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     ]);
   };
 
-  // dutyId comes from the already-cached currentDuty — no extra fetch.
+  /**
+   * Resolves the target duty lazily via `ensureOpenDuty` instead of
+   * trusting the cached `currentDutyQuery.data` (which may be null
+   * after a close, or stale if another tab created a duty first).
+   * This is the only path in the app that implicitly opens a new duty.
+   */
   const createOrder: AppDataContextValue['createOrder'] = async (input) => {
-    const duty = currentDutyQuery.data as Duty;
+    const duty = await dutyService.ensureOpenDuty();
+
     const order = await orderService.createOrder({
       ...input,
       dutyId: duty.id,
     });
+
     queryClient.setQueryData<Order[]>(['orders'], (prev) =>
       prev ? [order, ...prev] : [order],
     );
+
+    // If ensureOpenDuty just created a duty, the cache is stale.
+    // Cheap invalidation is safer than a conditional setQueryData here.
+    if (currentDutyQuery.data?.id !== duty.id) {
+      queryClient.setQueryData<Duty>(['currentDuty'], duty);
+    }
+
     return order;
   };
 
-  // restaurantName is read from the already-cached order — no extra fetch
-  // of the whole restaurants table just to relabel one order.
   const completeOrder: AppDataContextValue['completeOrder'] = async (
     id,
     collected,
@@ -95,8 +107,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Relies on the DB unique constraint via createRestaurant's null return
-  // instead of a separate nameExists() pre-check — one round trip.
   const addRestaurant: AppDataContextValue['addRestaurant'] = async (name) => {
     const restaurant = await restaurantService.createRestaurant(name);
     if (!restaurant) return null;
@@ -121,7 +131,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       return next ? [...next].sort((a, b) => a.name.localeCompare(b.name)) : next;
     });
 
-    // Orders embed the restaurant name directly, so keep those in sync too.
     queryClient.setQueryData<Order[]>(['orders'], (prev) =>
       prev
         ? prev.map((o) =>
@@ -131,10 +140,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  /**
+   * Closes the current duty. Does NOT eagerly create the next one —
+   * that happens lazily inside `createOrder` when work actually resumes.
+   * The cache is set to null so screens can render the "no active duty"
+   * state immediately.
+   */
   const closeDuty: AppDataContextValue['closeDuty'] = async () => {
-    const newDuty = await dutyService.closeCurrentDuty();
-    queryClient.setQueryData(['currentDuty'], newDuty);
-    return newDuty;
+    const closed = await dutyService.closeCurrentDuty();
+    queryClient.setQueryData<Duty | null>(['currentDuty'], null);
+    return closed;
   };
 
   const currentDuty = currentDutyQuery.data ?? null;
@@ -149,7 +164,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value: AppDataContextValue = {
     orders,
     restaurants,
-    currentDuty: currentDuty as Duty,
+    currentDuty,
     currentDutyOrders,
     loading,
     createOrder,
@@ -160,15 +175,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     refresh,
   };
 
-  // Do not render the application screens until the initial
-  // Supabase data and current Duty have both loaded.
-  if (loading || !currentDuty) {
+  // Gate on data readiness only — a NULL currentDuty is a valid
+  // steady state now (user has closed and not yet added new work),
+  // not a loading condition.
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-ink-50">
         {loadError ? (
           <div className="px-6 text-center">
             <p className="text-sm text-danger-600">{loadError}</p>
-
             <button
               type="button"
               onClick={refresh}
