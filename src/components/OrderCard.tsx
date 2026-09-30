@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { Order } from '@/types';
 import { formatRs, formatRsPlain, marginOf } from '@/types';
 import { StatusBadge } from './ui/StatusBadge';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Trash2 } from 'lucide-react';
 
 interface OrderCardProps {
   order: Order;
