@@ -215,6 +215,36 @@ export const orderService = {
 
     return mapOrder(data as DbOrder, restaurantName);
   },
+
+  /**
+   * Hard-deletes a WAITING order. Guarded by .eq('status', 'WAITING')
+   * so a race where the order is completed in another tab between UI
+   * display and this call safely no-ops instead of removing a
+   * COMPLETED order (which would corrupt duty totals).
+   *
+   * Also scoped by .eq('user_id', userId) as belt-and-suspenders next
+   * to the RLS policy "Users can delete orders of their open duties" —
+   * RLS remains the real authorization boundary; this just ensures the
+   * client can't accidentally issue a delete that fans out beyond the
+   * intended row if the policy is ever loosened.
+   *
+   * Returns true if a row was actually deleted, false if the guard
+   * rejected (row was already completed, already gone, or in a
+   * closed duty which RLS refuses).
+   */
+  async deleteOrder(id: string): Promise<boolean> {
+    const userId = await requireUserId();
+    const { data, error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+      .eq('status', 'WAITING')
+      .select('id');
+
+    if (error) throw error;
+    return (data?.length ?? 0) > 0;
+  },
 };
 
 export const restaurantService = {
