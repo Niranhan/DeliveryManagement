@@ -94,11 +94,26 @@ export function OrderCard({
             <StatusBadge status={order.status} />
           </div>
           <p className="mt-0.5 truncate text-sm font-semibold text-ink-700">{order.restaurantName}</p>
-          {order.customerReference && <p className="truncate text-xs text-ink-400">Customer: {order.customerReference}</p>}
+          {order.customerReference && (
+            <p className="truncate text-xs text-ink-400">Customer: {order.customerReference}</p>
+          )}
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[11px] uppercase tracking-wide text-ink-400">Paid to restaurant</p>
-          <p className="text-lg font-bold text-ink-900">{formatRs(order.paidToRestaurant)}</p>
+        <div className="flex shrink-0 items-start gap-2">
+          <div className="text-right">
+            <p className="text-[11px] uppercase tracking-wide text-ink-400">Paid to restaurant</p>
+            <p className="text-lg font-bold text-ink-900">{formatRs(order.paidToRestaurant)}</p>
+          </div>
+          {onDelete && (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              aria-label="Delete order"
+              className="no-tap -mr-1 -mt-1 flex h-9 w-9 items-center justify-center rounded-xl text-ink-400 active:bg-danger-50 active:text-danger-600 disabled:opacity-50"
+            >
+              <Trash2 size={18} />
+            </button>
+          )}
         </div>
       </div>
       {action && <div className="mt-3">{action}</div>}
