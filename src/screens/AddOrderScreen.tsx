@@ -30,9 +30,12 @@ export function AddOrderScreen() {
   const [reference, setReference] = useState('');
   const [errors, setErrors] = useState<{ amount?: string; restaurant?: string }>({});
   const [saving, setSaving] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return; // hard guard against double-tap in-flight
+
     const errs: { amount?: string; restaurant?: string } = {};
     if (!selected) errs.restaurant = 'Please select a restaurant.';
     const amt = Number(amount);
@@ -41,18 +44,28 @@ export function AddOrderScreen() {
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
+    setSubmitError(null);
     setSaving(true);
-    setTimeout(() => {
-      createOrder({
+    try {
+      await createOrder({
         restaurantId: selected!.id,
         restaurantName: selected!.name,
         paidToRestaurant: amt,
-        customerReference: reference,
+        customerReference: reference.trim(),
       });
-      setSaving(false);
       setSuccess(true);
-      setTimeout(() => navigate('/active', { replace: true }), 700);
-    }, 400);
+      // Short pause so the confirmation screen is perceptible; the write
+      // is already committed by this point.
+      setTimeout(() => navigate('/active', { replace: true }), 500);
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : 'Could not save order. Please try again.';
+      setSubmitError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (success) {
@@ -107,7 +120,16 @@ export function AddOrderScreen() {
           />
         </section>
 
-        <PrimaryButton onClick={handleSave} loading={saving}>
+        {submitError && (
+          <div
+            role="alert"
+            className="rounded-xl border border-danger-200 bg-danger-50 px-3 py-2.5 text-sm text-danger-700"
+          >
+            {submitError}
+          </div>
+        )}
+
+        <PrimaryButton onClick={handleSave} loading={saving} disabled={saving}>
           {saving ? 'Saving...' : 'Save Order'}
         </PrimaryButton>
       </div>
