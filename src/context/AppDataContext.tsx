@@ -18,6 +18,7 @@ interface AppDataContextValue {
     customerReference: string;
   }) => Promise<Order>;
   completeOrder: (id: string, collected: number) => Promise<void>;
+  deleteOrder: (id: string) => Promise<void>;
   addRestaurant: (name: string) => Promise<Restaurant | null>;
   updateRestaurant: (id: string, name: string) => Promise<void>;
   closeDuty: () => Promise<Duty>;
@@ -43,7 +44,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const currentDutyQuery = useQuery({
     queryKey: ['currentDuty'],
-    queryFn: () => dutyService.getCurrentDuty(), // may resolve to null
+    queryFn: () => dutyService.getCurrentDuty(),
   });
 
   const loading =
@@ -64,12 +65,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     ]);
   };
 
-  /**
-   * Resolves the target duty lazily via `ensureOpenDuty` instead of
-   * trusting the cached `currentDutyQuery.data` (which may be null
-   * after a close, or stale if another tab created a duty first).
-   * This is the only path in the app that implicitly opens a new duty.
-   */
   const createOrder: AppDataContextValue['createOrder'] = async (input) => {
     const duty = await dutyService.ensureOpenDuty();
 
@@ -82,8 +77,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       prev ? [order, ...prev] : [order],
     );
 
-    // If ensureOpenDuty just created a duty, the cache is stale.
-    // Cheap invalidation is safer than a conditional setQueryData here.
     if (currentDutyQuery.data?.id !== duty.id) {
       queryClient.setQueryData<Duty>(['currentDuty'], duty);
     }
@@ -104,6 +97,38 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       queryClient.setQueryData<Order[]>(['orders'], (prev) =>
         prev ? prev.map((o) => (o.id === id ? updated : o)) : prev,
       );
+    }
+  };
+
+  /**
+   * Optimistically removes the order from the cache, then commits to DB.
+   * On failure (guard rejection or network error), rolls the cache back
+   * to its previous state and re-throws so the caller can surface an
+   * error. On guard rejection (row was completed in another tab), also
+   * invalidates so the true server state is refetched.
+   */
+  const deleteOrder: AppDataContextValue['deleteOrder'] = async (id) => {
+    const previous = queryClient.getQueryData<Order[]>(['orders']);
+
+    queryClient.setQueryData<Order[]>(['orders'], (prev) =>
+      prev ? prev.filter((o) => o.id !== id) : prev,
+    );
+
+    try {
+      const deleted = await orderService.deleteOrder(id);
+      if (!deleted) {
+        // Guard rejected — the order was completed or removed elsewhere
+        // between UI display and this call. Roll back the optimistic
+        // removal and refresh from the server so the user sees truth.
+        if (previous) queryClient.setQueryData<Order[]>(['orders'], previous);
+        await queryClient.invalidateQueries({ queryKey: ['orders'] });
+        throw new Error(
+          'This order was completed just now and can no longer be deleted.',
+        );
+      }
+    } catch (e) {
+      if (previous) queryClient.setQueryData<Order[]>(['orders'], previous);
+      throw e;
     }
   };
 
@@ -140,12 +165,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  /**
-   * Closes the current duty. Does NOT eagerly create the next one —
-   * that happens lazily inside `createOrder` when work actually resumes.
-   * The cache is set to null so screens can render the "no active duty"
-   * state immediately.
-   */
   const closeDuty: AppDataContextValue['closeDuty'] = async () => {
     const closed = await dutyService.closeCurrentDuty();
     queryClient.setQueryData<Duty | null>(['currentDuty'], null);
@@ -169,15 +188,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     loading,
     createOrder,
     completeOrder,
+    deleteOrder,
     addRestaurant,
     updateRestaurant,
     closeDuty,
     refresh,
   };
 
-  // Gate on data readiness only — a NULL currentDuty is a valid
-  // steady state now (user has closed and not yet added new work),
-  // not a loading condition.
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-ink-50">
